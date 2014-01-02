@@ -1,0 +1,155 @@
+﻿<!DOCTYPE html>
+<!-- saved from url=(0050)http://www.ewdna.com/2011/11/java-thread-pool.html -->
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta content="vEhPX08-BXp0eu1c0Srgjivx6x8v47XwV0Tkd8oqEv0" name="google-site-verification">
+<meta content="IE=EmulateIE7" http-equiv="X-UA-Compatible">
+<meta content="width=1100" name="viewport">
+<title>Java：超簡單 Thread Pool 功能實作 @ 符碼記憶</title>
+</head>
+<body>
+<h2 class="date-header">
+<span>
+2011/11/24
+</span>
+</h2>
+<div class="date-posts">             
+<div class="post-outer">
+<div class="post hentry">
+<a name="4365949124453674204"></a>
+<h3 class="post-title entry-title">
+<a href="./Java：超簡單 Thread Pool 功能實作 @ 符碼記憶_files/Java：超簡單 Thread Pool 功能實作 @ 符碼記憶.htm">
+Java：超簡單 Thread Pool 功能實作
+</a>
+</h3>
+</a>
+</span>
+</div>
+<div class="post-body entry-content" id="post-body-4365949124453674204">
+介紹 Thread Pool 之前，我們要先搞清楚 Thread 是什麼。<br>
+因為內容很多，所以這邊引用修改了&nbsp;<a href="http://programming.im.ncnu.edu.tw/J_Chapter9.htm">Program,Process,Thread</a>&nbsp;的資料：<br>
+<ul>
+<li><span class="Apple-style-span" style="color: #0b5394;">Program：<br>
+一群程式碼的集合，用以解決特定的問題。在物件導向中相當於類別(Class)。</span></li>
+<li><span class="Apple-style-span" style="color: #0b5394;">Process：<br>
+由Program所產生的執行個體，一個Program可以同時執行多次產生多個Process。在物件導向中相當於Object。</span></li>
+</ul>
+<span class="Apple-style-span" style="color: #0b5394;">而 Process又由 Memory Space 和一個以上的 Thread 所組成，其中：</span><br>
+<ul>
+<li><span class="Apple-style-span" style="color: #0b5394;">Memory Space：相當於Object的variable，不同Process的Memory Space也不同，彼此看不到其他Process的Memory Space。</span></li>
+<li><span class="Apple-style-span" style="color: #0b5394;">一個以上的Thread：<br>
+Thread代表從某個起始點開始(例如main)，到目前為止所有函數的呼叫路徑，以及這些呼叫路徑上所用到的區域變數。</span></li>
+</ul>
+<span class="Apple-style-span" style="color: #0b5394;">當然程式的執行狀態，除了紀錄在主記憶體外，CPU內部的暫存器(如Program Counter, Stack Pointer, Program Status Word等)也需要一起紀錄。所以Thread又由下面兩項組成：</span><br>
+<ul>
+<li><span class="Apple-style-span" style="color: #0b5394;">Stack：紀錄函數呼叫路徑,以及這些函數所用到的區域變數。</span></li>
+<li><span class="Apple-style-span" style="color: #0b5394;">目前CPU的狀態。</span></li>
+</ul>
+<span class="Apple-style-span" style="color: #0b5394;">因此 Thread 的重點如下，</span><span class="Apple-style-span" style="color: red;"><b>一個Process可以有多個Thread。同一Process內的Thread使用相同的Memory Space，但這些Thread各自擁有其Stack</b></span><span class="Apple-style-span" style="color: #0b5394;">。換句話說，</span><span class="Apple-style-span" style="color: red;"><b>Thread能透過reference存取到相同的Object，但是local variable卻是各自獨立的</b></span><span class="Apple-style-span" style="color: #0b5394;">。作業系統會根據Thread的優先權以及已經用掉的CPU時間在不同的Thread作切換,以讓各個Thread都有機會執行。</span><br>
+<br>
+嗯，好像有點扯太遠了，<br>
+總之Thread 執行緒常被定義為一個輕量的(Lightweight) Process，可用來處理 request，<br>
+然而雖然是輕量，但在產生 Thread 時仍會有 overhead，此時若 request 量太大，<br>
+又沒有善加管理這些 Thread 的話，就會拖累整體系統的效能。<br>
+為了解決這種類型的效能問題，所以就有了 Thread Pool 的概念產生。<br>
+<br>
+Thread Pool 的概念如同其名，就是一個 Thread 的 Pool，<br>
+其中有固定或變動量的 Thread，當 request 進來時，若有閒置的 Thread 就執行，<br>
+若沒有的話，可能產生新的 Thread 或把 request 放入 queue 中等待被執行，<br>
+當一條 Thread 執行完工作而 queue 中仍有 request 在等待時，<br>
+此 Thread 應該要被分發新的 request 並處理。<br>
+<br>
+由以上幾行，我們可以看出 Thread Pool 的工作有：<br>
+<ol>
+<li>管控 Thread 的產生與回收</li>
+<li>分發 Thread 處理 request</li>
+<li>處理 request 的 queue</li>
+</ol>
+這三點其實很不簡單，<br>
+若有興趣的人可以參考<a href="http://caterpillar.onlyfun.net/Gossip/DesignPattern/ThreadPool.htm">Design Pattern: Thread Pool 模式</a>，<br>
+看看以前是怎麼實作 Thread Pool，以往用 Java 寫 Thread Pool 並不是簡單的事，<br>
+不過在 JavaSE 5.0 後，只要用簡單的幾行程式碼就可以做出 Thread Pool 的效果：<br>
+<pre style="background-color: white; color: black; font-family: &#39;Courier&#39;; font-size: 10pt;"><span style="color: black;"> 1 </span><span style="color: #7f0055; font-weight: bold;">package</span> demo<span style="color: black;">;</span>
+<span style="color: black;"> 2 </span>
+<span style="color: black;"> 3 </span><span style="color: #7f0055; font-weight: bold;">import</span> java<span style="color: black;">.</span>util<span style="color: black;">.</span>concurrent<span style="color: black;">.</span>Executor<span style="color: black;">;</span>
+<span style="color: black;"> 4 </span><span style="color: #7f0055; font-weight: bold;">import</span> java<span style="color: black;">.</span>util<span style="color: black;">.</span>concurrent<span style="color: black;">.</span>Executors<span style="color: black;">;</span>
+<span style="color: black;"> 5 </span>
+<span style="color: black;"> 6 </span><span style="color: #7f0055; font-weight: bold;">public class</span> ThreadPoolDemo <span style="color: black;">{</span>
+<span style="color: black;"> 7 </span>
+<span style="color: black;"> 8 </span>    <span style="color: #7f0055; font-weight: bold;">public static</span> <span style="color: #7f0055; font-weight: bold;">void</span> <span style="color: black;">main</span><span style="color: black;">(</span>String<span style="color: black;">[]</span> args<span style="color: black;">) {</span>
+<span style="color: black;"> 9 </span>        
+<span style="color: black;">10 </span>        <span style="color: #2f9956;">// 建立 2 個 thread 的 thread pool</span>
+<span style="color: black;">11 </span>        Executor executor <span style="color: black;">=</span> Executors<span style="color: black;">.</span><span style="color: black;">newFixedThreadPool</span><span style="color: black;">(</span><span style="color: black;">2</span><span style="color: black;">);</span>  
+<span style="color: black;">12 </span>        
+<span style="color: black;">13 </span>        <span style="color: #2f9956;">// 執行實作了 Runnable 介面的內部類別 Work</span>
+<span style="color: black;">14 </span>        executor<span style="color: black;">.</span><span style="color: black;">execute</span><span style="color: black;">(</span><span style="color: #7f0055; font-weight: bold;">new</span> <span style="color: black;">Work</span><span style="color: black;">(</span><span style="color: black;">1</span><span style="color: black;">));</span>  
+<span style="color: black;">15 </span>        executor<span style="color: black;">.</span><span style="color: black;">execute</span><span style="color: black;">(</span><span style="color: #7f0055; font-weight: bold;">new</span> <span style="color: black;">Work</span><span style="color: black;">(</span><span style="color: black;">2</span><span style="color: black;">));</span>  
+<span style="color: black;">16 </span>        executor<span style="color: black;">.</span><span style="color: black;">execute</span><span style="color: black;">(</span><span style="color: #7f0055; font-weight: bold;">new</span> <span style="color: black;">Work</span><span style="color: black;">(</span><span style="color: black;">3</span><span style="color: black;">));</span>  
+<span style="color: black;">17 </span>
+<span style="color: black;">18 </span>        <span style="color: #2f9956;">// 直接在 function 中宣告匿名內部類別</span>
+<span style="color: black;">19 </span>        executor<span style="color: black;">.</span><span style="color: black;">execute</span><span style="color: black;">(</span><span style="color: #7f0055; font-weight: bold;">new</span> <span style="color: black;">Runnable</span><span style="color: black;">() {</span>
+<span style="color: black;">20 </span>            <span style="color: #2f9956;">// anonymous inner class            </span>
+<span style="color: black;">21 </span>            <span style="color: #7f0055; font-weight: bold;">@Override</span>
+<span style="color: black;">22 </span>            <span style="color: #7f0055; font-weight: bold;">public</span> <span style="color: #7f0055; font-weight: bold;">void</span> <span style="color: black;">run</span><span style="color: black;">() {</span>
+<span style="color: black;">23 </span>                System<span style="color: black;">.</span>out<span style="color: black;">.</span><span style="color: black;">println</span><span style="color: black;">(</span>Thread<span style="color: black;">.</span><span style="color: black;">currentThread</span><span style="color: black;">().</span><span style="color: black;">getName</span><span style="color: black;">() +</span> 
+<span style="color: black;">24 </span>                    <span style="color: blue;">" Begins Work in anonymous inner class."</span><span style="color: black;">);</span>  
+<span style="color: black;">25 </span>            <span style="color: black;">}</span>
+<span style="color: black;">26 </span>        <span style="color: black;">});</span>
+<span style="color: black;">27 </span>    <span style="color: black;">}</span>
+<span style="color: black;">28 </span>    
+<span style="color: black;">29 </span>    <span style="color: #7f0055; font-weight: bold;">public static class</span> Work <span style="color: #7f0055; font-weight: bold;">implements</span> Runnable <span style="color: black;">{</span>  
+<span style="color: black;">30 </span>        <span style="color: #7f0055; font-weight: bold;">private</span> <span style="color: #7f0055; font-weight: bold;">int</span> id<span style="color: black;">;</span>  
+<span style="color: black;">31 </span>      
+<span style="color: black;">32 </span>        <span style="color: #7f0055; font-weight: bold;">public</span> <span style="color: black;">Work</span> <span style="color: black;">(</span><span style="color: #7f0055; font-weight: bold;">int</span> id<span style="color: black;">) {</span>  
+<span style="color: black;">33 </span>            <span style="color: #7f0055; font-weight: bold;">this</span><span style="color: black;">.</span>id <span style="color: black;">=</span> id<span style="color: black;">;</span>  
+<span style="color: black;">34 </span>        <span style="color: black;">}</span>  
+<span style="color: black;">35 </span>      
+<span style="color: black;">36 </span>        <span style="color: #7f0055; font-weight: bold;">public</span> <span style="color: #7f0055; font-weight: bold;">void</span> <span style="color: black;">run</span><span style="color: black;">() {</span>  
+<span style="color: black;">37 </span>            System<span style="color: black;">.</span>out<span style="color: black;">.</span><span style="color: black;">println</span><span style="color: black;">(</span>Thread<span style="color: black;">.</span><span style="color: black;">currentThread</span><span style="color: black;">().</span><span style="color: black;">getName</span><span style="color: black;">() +</span> 
+<span style="color: black;">38 </span>                <span style="color: blue;">" Begins Work "</span> <span style="color: black;">+</span> id<span style="color: black;">);</span>  
+<span style="color: black;">39 </span>            <span style="color: #7f0055; font-weight: bold;">try</span> <span style="color: black;">{</span>  
+<span style="color: black;">40 </span>                Thread<span style="color: black;">.</span><span style="color: black;">sleep</span><span style="color: black;">(</span><span style="color: black;">5000</span><span style="color: black;">);</span>  
+<span style="color: black;">41 </span>            <span style="color: black;">}</span>  
+<span style="color: black;">42 </span>            <span style="color: #7f0055; font-weight: bold;">catch</span> <span style="color: black;">(</span>InterruptedException ex<span style="color: black;">) {</span>  
+<span style="color: black;">43 </span>                ex<span style="color: black;">.</span><span style="color: black;">printStackTrace</span><span style="color: black;">();</span>  
+<span style="color: black;">44 </span>            <span style="color: black;">}</span>  
+<span style="color: black;">45 </span>            System<span style="color: black;">.</span>out<span style="color: black;">.</span><span style="color: black;">println</span><span style="color: black;">(</span>Thread<span style="color: black;">.</span><span style="color: black;">currentThread</span><span style="color: black;">().</span><span style="color: black;">getName</span><span style="color: black;">() +</span> 
+<span style="color: black;">46 </span>                <span style="color: blue;">" Ends Work "</span> <span style="color: black;">+</span> id<span style="color: black;">);</span>  
+<span style="color: black;">47 </span>        <span style="color: black;">}</span>  
+<span style="color: black;">48 </span>    <span style="color: black;">}</span>  
+<span style="color: black;">49 </span><span style="color: black;">}</span>
+<span style="color: black;">執行結果如下：</span>
+<span style="color: black;">pool-1-thread-2 Begins Work 2
+pool-1-thread-1 Begins Work 1
+pool-1-thread-1 Ends Work 1
+pool-1-thread-1 Begins Work 3
+pool-1-thread-2 Ends Work 2
+pool-1-thread-2 Begins Work in anonymous inner class.
+pool-1-thread-1 Ends Work 3</span></pre>
+由以上的程式中我們可以發現，<br>
+Thread Pool 的 Thread 生命週期、request queue、分發request 都被 Java 做掉了，<br>
+我們所要做的就只有設定 Thread 的數量和專注在工作的內容，是不是相當簡單呢？<br>
+<br>
+另外除了固定 Thread 數量的 Thread Pool 可用 Executors.newFixedThreadPool() 外，<br>
+Executors 也提供了其他的 method 來產生不同的 Thread Pool，如：<br>
+<ol>
+<li>newSingleThreadExecutor()</li>
+<li>newCachedThreadPool()</li>
+<li>newScheduledThreadPool()</li>
+<li>newSingleThreadScheduledExecutor() 等</li>
+</ol>
+若上面沒有符合自己需求的，<br>
+也可以參考&nbsp;<a href="http://docs.oracle.com/javase/1.5.0/docs/api/java/util/concurrent/ThreadPoolExecutor.html">java.util.concurrent.ThreadPoolExecutor</a>&nbsp;建立符合自己需求的 Thread Pool。<br>
+<br>
+關鍵字：Java, Thread, Pool,&nbsp;Executor,&nbsp;Executors,&nbsp;ThreadExecutor,&nbsp;ThreadPoolExecutor<br>
+參考資料：<br>
+<div>
+<ol>
+<li><a href="http://angusdev.mysinablog.com/index.php?op=ViewArticle&articleId=309068">用 Java 做簡單的 Thread pool</a></li>
+<li><a href="http://docs.oracle.com/javase/1.5.0/docs/api/java/util/concurrent/ThreadPoolExecutor.html">java.util.concurrent.ThreadPoolExecutor</a></li>
+</ol>
+<ol></ol>
+</div>
+</body>
+</html>

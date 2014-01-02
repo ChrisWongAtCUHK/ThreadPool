@@ -4,11 +4,10 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * @author WWC076
  * <p>
- *  ThreadPoolDemo
- *  @link http://www.ewdna.com/2011/11/java-thread-pool.html
+ *  <a href="http://www.ewdna.com/2011/11/java-thread-pool.html" target="_blank">ThreadPoolDemo</a>
  * </p>
+ * @author WWC076
  */
 public class ThreadPoolDemo {
 	
